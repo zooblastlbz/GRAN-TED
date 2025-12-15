@@ -286,24 +286,15 @@ class AttnPooling(nn.Module):
         dropout: float = 0.0,
         num_layers: int = 2,
         use_rope: bool = True,
-        use_softmax_weights: bool = False,
-        load_softmax_weights: str=None,
         num_llm_layers: Optional[int] = 0,
         elementwise_affine: bool = True,
-        trainable_layer_weights = False,
         norm_type = "layer_norm",
-        use_norm = True,
-        use_post_norm =False,
     ):
         super().__init__()
         self.use_rope = use_rope
         self.pool_token = nn.Parameter(torch.zeros(1, 1, dim))
         self.num_layers = num_layers
-        self.use_softmax_weights = use_softmax_weights
-        self.trainable_layer_weights = trainable_layer_weights
         self.norm_type=norm_type
-        self.use_norm=use_norm
-        self.use_post_norm=use_post_norm
 
         self.layers_to_select=layers_to_select
         if isinstance(self.layers_to_select,int):
@@ -326,35 +317,6 @@ class AttnPooling(nn.Module):
             # # 每层一个“标量”缩放和偏移
             # self.ln_scales = nn.Parameter(torch.ones(L))   # w_i
             # self.ln_biases = nn.Parameter(torch.zeros(L))  # b_i
-        if self.use_softmax_weights:
-            if self.layers_to_select != "all":
-                raise ValueError("When using softmax weights, all layers must be selected (i.e., select_all_layers_or_not must be True).")
-            L = self.num_layer_norms  # 注意：这里是否 +1？看你后续输入 x 的层数
-            print(f"use soft max weights!!!!!!!!!!!!!")
-            if self.trainable_layer_weights:
-                # 可训练参数
-                init_w = torch.zeros(L, dtype=torch.float32)
-                self.layer_weights = nn.Parameter(init_w) 
-            else:
-                # 不可训练 buffer
-                self.register_buffer("layer_weights", torch.zeros(L, dtype=torch.float32))
-            
-            if load_softmax_weights is not None:
-                try:
-                    obj = torch.load(load_softmax_weights, map_location="cpu")
-                    w = obj['layer_weights']
-                    if w.shape != self.layer_weights.shape:
-                        raise ValueError(f"Shape mismatch: expected {self.layer_weights.shape}, got {w.shape}")
-                    with torch.no_grad():
-                        self.layer_weights.copy_(w.to(dtype=self.layer_weights.dtype))
-                    print("successfully load softmax weights")
-                except Exception as e:
-                    print(f"[AttnPooling] Warning: failed to load layer_weights from {load_softmax_weights}: {e}")
-
-
-        #print('-'*1000)
-        #print(self.layer_weights)
-        #print('-'*1000)
         if use_rope:
             self.encoder = nn.ModuleList([
                 _RoPEBlock(dim, num_heads, mlp_ratio, dropout)
@@ -390,110 +352,32 @@ class AttnPooling(nn.Module):
 
 
 
-            if self.use_softmax_weights:
-                layer_weights = F.softmax(self.layer_weights, dim=0)  # shape: [L]
-                #layer_weights=layer_weights*self.num_layer_norms
-                #print(layer_weights)
-            
             if x.dim() == 4:
                 B, L, N, D = x.shape
                 x_out = torch.empty_like(x)  # [B, L, N, D]
-                if self.use_norm:
-                    for i in range(L):
-                        x_i = x[:, i, :, :]  # [B, N, D]
-                        # 使用 functional layer_norm without learnable params
-                        if self.norm_type == "layer_norm":
-                            x_norm = F.layer_norm(x_i.contiguous(), normalized_shape)
-                        elif self.norm_type == "rms_norm":
-                            x_norm=rms_norm(x_i.contiguous())
-                        if self.use_softmax_weights:
-                            x_out[:, i, :, :] = x_norm * layer_weights[i]
-                        else:
-                            x_out[:, i, :, :] = x_norm
-                    if self.use_softmax_weights:
-                        x = x_out.sum(dim=1)
+                for i in range(L):
+                    x_i = x[:, i, :, :]  # [B, N, D]
+                    if self.norm_type == "layer_norm":
+                        x_out[:, i, :, :] = F.layer_norm(x_i.contiguous(), normalized_shape)
+                    elif self.norm_type == "rms_norm":
+                        x_out[:, i, :, :] = rms_norm(x_i.contiguous())
                     else:
-                        x = x_out.mean(dim=1)  # [B, N, D]
-                else:
-                    for i in range(L):
-                        x_i = x[:, i, :, :]  # [B, N, D]
-                        # 使用 functional layer_norm without learnable params
-                        if self.use_softmax_weights:
-                            x_out[:, i, :, :] = x_i * layer_weights[i]
-                        else:
-                            x_out[:, i, :, :] = x_i
-                    if self.use_softmax_weights:
-                        x = x_out.sum(dim=1)
-                    else:
-                        x = x_out.mean(dim=1)  # [B, N, D]
+                        raise ValueError(f"Unsupported norm_type: {self.norm_type}")
+                x = x_out.mean(dim=1)  # [B, N, D]
 
             else:
                 L, N, D = x.shape
                 x_out = torch.empty_like(x)  # [L, N, D]
-                if self.use_norm:
-                    for i in range(L):
-                        x_i = x[i, :, :]  # [N, D]
-                        if self.norm_type == "layer_norm":
-                            x_norm = F.layer_norm(x_i.contiguous(), normalized_shape)
-                        elif self.norm_type == "rms_norm":
-                            x_norm=rms_norm(x_i.contiguous())
-                        if self.use_softmax_weights:
-                            x_out[i, :, :] = x_norm * layer_weights[i]
-                        else:
-                            x_out[i, :, :] = x_norm
-                    if self.use_softmax_weights:
-                        x=x_out.sum(dim=0)
-                    else:
-                        x = x_out.mean(dim=0)  # [N, D]
-                else:
-                    for i in range(L):
-                        x_i = x[i, :, :]  # [N, D]
-                        if self.use_softmax_weights:
-                            x_out[i, :, :] = x_i * layer_weights[i]
-                        else:
-                            x_out[i, :, :] = x_i
-                    if self.use_softmax_weights:
-                        x=x_out.sum(dim=0)
-                    else:
-                        x = x_out.mean(dim=0)  # [N, D]
-        '''        
-        if self.select_all_layers_or_not:
-            assert (x.shape[1] == self.num_layer_norms + 1 and x.dim() == 4) or (x.shape[0] == self.num_layer_norms + 1 and x.dim() == 3), \
-                f"Expected x shape to be [B, L, N, dim] or [L, N, dim] with L={self.num_layer_norms + 1}, but got {x.shape}."
-            # L 个 x [B N dim] 每个都过自己的 layernorm
-            if self.use_softmax_weights:
-                layer_weights = F.softmax(self.layer_weights, dim=0)  # shape: [L]
-            if x.dim() == 4:
-                B, L, N, D = x.shape
-                x_out = torch.empty_like(x)  # [B, L, N, D]
                 for i in range(L):
-                    # x_out[:, i, :, :] = self.layer_norms[i](x[:, i, :, :])  # 不触发 autograd 报错
-                    x_i = x[:, i, :, :]
-                    if self.use_softmax_weights:
-                        x_out[:, i, :, :] = self.layer_norms[i](x_i.contiguous()).clone()*layer_weights[i]
+                    x_i = x[i, :, :]  # [N, D]
+                    if self.norm_type == "layer_norm":
+                        x_out[i, :, :] = F.layer_norm(x_i.contiguous(), normalized_shape)
+                    elif self.norm_type == "rms_norm":
+                        x_out[i, :, :] = rms_norm(x_i.contiguous())
                     else:
-                        x_out[:, i, :, :] = self.layer_norms[i](x_i.contiguous()).clone()
-                x = x_out.mean(dim=1)  # [B, N, D]
-            else:
-                L, N, D = x.shape
-                x_out = torch.empty_like(x)  # [L, N, D]
-                for i in range(L):
-                    if self.use_softmax_weights:
-                        x_out[i, :, :] = self.layer_norms[i](x[i, :, :].contiguous()).clone()*layer_weights[i]
-                    else:
-                        x_out[i, :, :] = self.layer_norms[i](x[i, :, :]).clone()
+                        raise ValueError(f"Unsupported norm_type: {self.norm_type}")
                 x = x_out.mean(dim=0)  # [N, D]
-        '''
-        if self.num_layer_norms==1 and self.use_norm:
-            if self.norm_type=="layer_norm":
-                x = F.layer_norm(x.contiguous(), normalized_shape)
-            elif self.norm_type == "rms_norm":
-                x =rms_norm(x.contiguous())
-        if self.use_post_norm:
-            if self.norm_type=="layer_norm":
-                x = F.layer_norm(x.contiguous(), normalized_shape)
-            elif self.norm_type == "rms_norm":
-                x =rms_norm(x.contiguous())
+        # 单层输入不再做额外归一化
         if x.dim() == 2:
             x = x.unsqueeze(1)
             if attention_mask is None:

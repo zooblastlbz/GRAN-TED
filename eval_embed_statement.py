@@ -3,10 +3,19 @@ import os
 import json
 import argparse
 import torch
-from typing import List, Dict
+from typing import List, Dict, Any
 from collections import defaultdict
 import numpy as np
 import random
+from pathlib import Path
+import sys
+
+# 确保 src 在路径中，便于导入新包布局
+ROOT = Path(__file__).resolve().parent
+SRC_ROOT = ROOT / "src"
+for p in (SRC_ROOT, ROOT):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
 
 
 # ------------------------------------------------------------
@@ -25,6 +34,16 @@ def parse_args():
     return p.parse_args()
 
 
+def _cfg_get(cfg: dict, path: List[str], default=None):
+    cur: Any = cfg
+    for k in path:
+        if isinstance(cur, dict) and k in cur:
+            cur = cur[k]
+        else:
+            return default
+    return cur
+
+
 # ------------------------------------------------------------
 # ❷ 根据 config 创建 wrapper
 # ------------------------------------------------------------
@@ -33,27 +52,29 @@ from models.llm_wrapper import Qwen25Wrapper, Qwen25VLWrapper, Qwen3Wrapper, Int
 from models.embedding_wrapper import Qwen3EmbedEmbeddingWrapper, Qwen3EmbedSequenceWrapper, JINAv4Wrapper
 from models.kling_wrapper import KlingBaseWrapper
 
+
 def build_wrapper(cfg: dict, device: str):
-    bb = cfg.get("backbone")
+    m = cfg.get("model", cfg)
+    bb = m.get("backbone")
     kw = dict(
         device=device,
-        layers_to_select     = cfg.get("layers_to_select", -1),
-        select_all_layers_or_not = cfg.get("select_all_layers_or_not", False),
+        layers_to_select=m.get("layers_to_select", -1),
+        select_all_layers_or_not=m.get("select_all_layers_or_not", False),
     )
-    if 'model_name' in cfg.keys():
-        kw['model_name']=cfg['model_name']
-    print(f"kw:{kw}")
+    if "model_name" in m:
+        kw["model_name"] = m["model_name"]
     if bb == "qwen25":
         return Qwen25Wrapper(**kw)
     elif bb == "qwen25vl" or bb == "xiaomi":
-        return Qwen25VLWrapper(device=device,
-                                model_name=cfg.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/Qwen/Qwen2.5-VL-7B-Instruct"),
-                                layers_to_select=cfg["layers_to_select"],
-                                select_all_layers_or_not=cfg["select_all_layers_or_not"])
+        return Qwen25VLWrapper(
+            device=device,
+            model_name=m.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/Qwen/Qwen2.5-VL-7B-Instruct"),
+            layers_to_select=m["layers_to_select"],
+            select_all_layers_or_not=m["select_all_layers_or_not"],
+        )
     elif bb == "qwen3embed_seq":
         return Qwen3EmbedSequenceWrapper(**kw)
     elif bb == "qwen3embed_embed":
-        # 句级 embedding 可设置 normalize=True 避免重复归一化
         return Qwen3EmbedEmbeddingWrapper(**kw)
     elif bb == "qwen3":
         return Qwen3Wrapper(**kw)
@@ -62,37 +83,41 @@ def build_wrapper(cfg: dict, device: str):
     elif bb == "llama3":
         return Llama3Wrapper(**kw)
     elif bb == "jina_v4":
-        if cfg["task"] == "retrieval":
-            task = "retrieval"  # 或 "text-matching"
-        else:
-            task = "text-matching"
-        wrapper = JINAv4Wrapper(device=device,
-                                task=task,  # 或 "retrieval"
-                                prompt_name=None)
-        return wrapper
+        task = "retrieval" if m.get("task") == "retrieval" else "text-matching"
+        return JINAv4Wrapper(device=device, task=task, prompt_name=None)
     elif bb == "t5_gemma":
-        return T5GemmaWrapper(model_name=cfg.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/Models/t5gemma-2b-2b-ul2"),
-                                device=device,
-                                layers_to_select=cfg["layers_to_select"],
-                                select_all_layers_or_not=cfg["select_all_layers_or_not"])
+        return T5GemmaWrapper(
+            model_name=m.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/Models/t5gemma-2b-2b-ul2"),
+            device=device,
+            layers_to_select=m["layers_to_select"],
+            select_all_layers_or_not=m["select_all_layers_or_not"],
+        )
     elif bb == "umt5":
-        return UMT5Wrapper(model_name=cfg.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/google/umt5-xxl"),
-                                device=device,
-                                layers_to_select=cfg["layers_to_select"],
-                                select_all_layers_or_not=cfg["select_all_layers_or_not"])
+        return UMT5Wrapper(
+            model_name=m.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/google/umt5-xxl"),
+            device=device,
+            layers_to_select=m["layers_to_select"],
+            select_all_layers_or_not=m["select_all_layers_or_not"],
+        )
     elif bb == "internvl3" or bb == "internvl3_5":
-        return InternVL3Wrapper(device=device,
-                                model_name=cfg.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/OpenGVLab/InternVL3-8B-hf"),
-                                layers_to_select=cfg["layers_to_select"],
-                                select_all_layers_or_not=cfg["select_all_layers_or_not"])
+        return InternVL3Wrapper(
+            device=device,
+            model_name=m.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/OpenGVLab/InternVL3-8B-hf"),
+            layers_to_select=m["layers_to_select"],
+            select_all_layers_or_not=m["select_all_layers_or_not"],
+        )
     elif bb == "kwai_llava":
-        return KwaiLlavaWrapper(device=device,
-                                layers_to_select=cfg["layers_to_select"],
-                                select_all_layers_or_not=cfg["select_all_layers_or_not"])
+        return KwaiLlavaWrapper(
+            device=device,
+            layers_to_select=m["layers_to_select"],
+            select_all_layers_or_not=m["select_all_layers_or_not"],
+        )
     elif bb == "clip_text":
-        return CLIPTextWrapper(device=device,
-                                layers_to_select=cfg["layers_to_select"],
-                                select_all_layers_or_not=cfg["select_all_layers_or_not"])
+        return CLIPTextWrapper(
+            device=device,
+            layers_to_select=m["layers_to_select"],
+            select_all_layers_or_not=m["select_all_layers_or_not"],
+        )
     elif bb == "minicpm":
         return MiniCPMWrapper(**kw)
     elif bb == "kling":
@@ -110,33 +135,30 @@ from models.attention_pooling import AttnPooling, MeanPooling
 
 
 def build_pool(cfg: dict, hidden_dim: int, device: str, load_epoch:str, num_llm_layers: int = 32) -> torch.nn.Module:
-    if cfg["adapter"] == "attn":
-        m    = AttnPooling(dim=hidden_dim,
-                        layers_to_select=cfg.get("layers_to_select",-1),
-                        norm_type=cfg.get("norm_type","layer_norm"),
-                        dim_out=cfg["proj_dim"],
-                        use_norm=cfg.get("use_norm",True),
-                        use_post_norm=cfg.get("use_post_norm",False),
-                        num_layers=cfg.get("num_layers", 2),
-                        use_rope=cfg.get("use_rope", True),
-                        num_llm_layers=num_llm_layers,
-                        use_softmax_weights=cfg.get('use_softmax_weights',False),
-                        load_softmax_weights=cfg.get('load_softmax_weights',None),
-                        trainable_layer_weights=cfg.get('trainable_layer_weights',False)).to(device)
+    m = cfg.get("model", cfg)
+    if m["adapter"] == "attn":
+        m_pool = AttnPooling(dim=hidden_dim,
+                        layers_to_select=m.get("layers_to_select",-1),
+                        norm_type=m.get("norm_type","layer_norm"),
+                        dim_out=m["proj_dim"],
+                        num_layers=m.get("num_layers", 2),
+                        use_rope=m.get("use_rope", True),
+                        num_llm_layers=num_llm_layers).to(device)
   
-        m = m.to(dtype=torch.bfloat16)
+        m_pool = m_pool.to(dtype=torch.bfloat16)
     else:
-        m = MeanPooling(dim=hidden_dim,
-                        dim_out=cfg["proj_dim"])
-    ckpt_path = os.path.join(cfg["output"], f"epoch_{load_epoch}.pt")
+        m_pool = MeanPooling(dim=hidden_dim,
+                        dim_out=m["proj_dim"])
+    ckpt_root = _cfg_get(cfg, ["trainer", "output"], cfg.get("output"))
+    ckpt_path = os.path.join(ckpt_root, f"epoch_{load_epoch}.pt")
     if os.path.exists(ckpt_path):
         print(f"Loading pooling weights from {ckpt_path}")
         state_dict = torch.load(ckpt_path)
-        m.load_state_dict(state_dict['model'], strict=True)
+        m_pool.load_state_dict(state_dict['model'], strict=True)
     else:
         print(f"Warning: Pooling checkpoint {ckpt_path} does not exist. Using uninitialized pooling.")
 
-    return m.to(device)
+    return m_pool.to(device)
 
 
 # ------------------------------------------------------------
@@ -144,61 +166,68 @@ def build_pool(cfg: dict, hidden_dim: int, device: str, load_epoch:str, num_llm_
 # ------------------------------------------------------------
 from models.embedding_model import EmbeddingModel
 import yaml
+from granted.config import TrainConfig
 
 def deploy_embedding_model(cfg_path: str, device: str, load_epoch: str) -> EmbeddingModel:
-    cfg = yaml.safe_load(open(cfg_path))
+    try:
+        cfg_obj = TrainConfig.from_yaml(cfg_path)
+        cfg = cfg_obj.to_dict()
+    except Exception:
+        cfg = yaml.safe_load(open(cfg_path))
     wrapper = build_wrapper(cfg, device)
-    if "dim_in" in cfg.keys():
-        dim_in=cfg['dim_in']
-    elif cfg["backbone"] == "jina_v4":
+    m = cfg.get("model", cfg)
+    backbone = m.get("backbone")
+    if "dim_in" in m:
+        dim_in = m["dim_in"]
+    elif backbone == "jina_v4":
         dim_in = 128
-    elif cfg["backbone"] == "t5_gemma":
+    elif backbone == "t5_gemma":
         dim_in = wrapper.model.config.encoder.hidden_size
-    elif cfg["backbone"] == "umt5":
+    elif backbone == "umt5":
         dim_in  = wrapper.model.config.d_model
-    elif cfg["backbone"] == "kwai_llava":
+    elif backbone == "kwai_llava":
         dim_in  = 4096
-    elif cfg["backbone"] == "internvl3" or cfg["backbone"] == "internvl3_5":
+    elif backbone == "internvl3" or backbone == "internvl3_5":
         try:
             dim_in  = wrapper.model.config.text_config.hidden_size
-        except:
+        except Exception:
             dim_in  = wrapper.model.config.llm_config.hidden_size
-    elif cfg["backbone"] == "qwen3vl":
-        dim_in=4096
-    elif cfg["backbone"] == "ovis2_5":
+    elif backbone == "qwen3vl":
+        dim_in = 4096
+    elif backbone == "ovis2_5":
         dim_in  = wrapper.model.config.llm_config.hidden_size
-    elif cfg["backbone"] == "kling":
+    elif backbone == "kling":
         dim_in  = 3584
-    elif cfg["backbone"] == "clip_text":
+    elif backbone == "clip_text":
         dim_in = 1024
-    elif cfg["backbone"] == "llama3":
-        dim_in =4096
+    elif backbone == "llama3":
+        dim_in = 4096
     else:
         dim_in  = wrapper.model.config.hidden_size
     hidden_dim = dim_in
 
-    if "num_llm_layers" in cfg.keys():
-        num_llm_layers = cfg["num_llm_layers"]
-    elif cfg["backbone"] == "t5_gemma":
+    if "num_llm_layers" in m:
+        num_llm_layers = m["num_llm_layers"]
+    elif backbone == "t5_gemma":
         num_llm_layers = wrapper.model.config.encoder.num_hidden_layers
-    elif cfg["backbone"] == "umt5":
+    elif backbone == "umt5":
         num_llm_layers = wrapper.model.config.num_layers
-    elif cfg["backbone"] == "kwai_llava":
+    elif backbone == "kwai_llava":
         num_llm_layers = 36
-    elif cfg["backbone"] == "kling":
+    elif backbone == "kling":
         num_llm_layers = 32
-    elif cfg["backbone"] == "internvl3" or cfg["backbone"] == "internvl3_5":
+    elif backbone == "internvl3" or backbone == "internvl3_5":
         try:
             num_llm_layers = wrapper.model.config.text_config.num_hidden_layers
-        except:
+        except Exception:
             num_llm_layers = wrapper.model.config.llm_config.num_hidden_layers
-    elif cfg["backbone"] == "qwen3vl":
+    elif backbone == "qwen3vl":
         num_llm_layers = 36
-    elif cfg["backbone"] == "ovis2_5":
+    elif backbone == "ovis2_5":
         num_llm_layers = wrapper.model.config.llm_config.num_hidden_layers
-    elif cfg["backbone"] == "clip_text":
+    elif backbone == "clip_text":
         num_llm_layers = 24
-    elif cfg["backbone"] == "llama3":
+    elif backbone == "llama3":
         num_llm_layers = 32
     else:
         num_llm_layers = wrapper.model.config.num_hidden_layers

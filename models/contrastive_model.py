@@ -15,7 +15,7 @@ from typing import Tuple, Dict, Optional
 
 
 # losses.py
-from distributed_utils import gather_features
+from models.distributed_utils import gather_features
 
 def info_nce_local_rows_global_cols(
     z1, z2, temperature=0.07, gather_with_grad=False, use_float32_logits=True

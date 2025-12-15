@@ -1,23 +1,35 @@
 # train_ddp.py
 # ============
-import argparse, yaml, os, torch, torch.distributed as dist
+import argparse, os, sys, torch, torch.distributed as dist
 from torch.utils.data import DataLoader, DistributedSampler
-
 import random
 import numpy as np
+from pathlib import Path
 
-# ⬇️ 其余 import 保持不变 ...
-from datasets.contrastive_dataset import ContrastiveTextPairDataset
-from datasets.collate import make_contrastive_collate, make_jina_contrastive_collate
-from models.encoder_wrapper import T5GemmaWrapper, UMT5Wrapper,CLIPTextWrapper
-from models.llm_wrapper import Qwen25Wrapper, Qwen25VLWrapper, Qwen3Wrapper, InternVL3Wrapper, KwaiLlavaWrapper, MiniCPMWrapper, OvisWrapper,Qwen3VLWrapper,Llama3Wrapper
-from models.embedding_wrapper import Qwen3EmbedEmbeddingWrapper, Qwen3EmbedSequenceWrapper, JINAv4Wrapper
-from models.kling_wrapper import KlingBaseWrapper
-from models.attention_pooling import AttnPooling, MeanPooling
-from models.contrastive_model import ContrastiveModel
-from trainer import Trainer
+# 期待通过环境变量提供 PYTHONPATH=src；保留相对导入的包路径
+from granted.data.datasets import ContrastiveTextPairDataset
+from granted.data.collate import make_contrastive_collate, make_jina_contrastive_collate
+from granted.models.encoder_wrapper import T5GemmaWrapper, UMT5Wrapper, CLIPTextWrapper
+from granted.models.llm_wrapper import (
+    Qwen25Wrapper,
+    Qwen25VLWrapper,
+    Qwen3Wrapper,
+    InternVL3Wrapper,
+    KwaiLlavaWrapper,
+    MiniCPMWrapper,
+    OvisWrapper,
+    Qwen3VLWrapper,
+    Llama3Wrapper,
+)
+from granted.models.embedding_wrapper import Qwen3EmbedEmbeddingWrapper, Qwen3EmbedSequenceWrapper, JINAv4Wrapper
+from granted.models.kling_wrapper import KlingBaseWrapper
+from granted.models.attention_pooling import AttnPooling, MeanPooling
+from granted.models.contrastive_model import ContrastiveModel
+from granted.training.trainer import Trainer
 from torch.utils.tensorboard import SummaryWriter
 import logging, sys
+
+from granted.config import TrainConfig  # type: ignore
 
 # ---------- CLI ----------
 p = argparse.ArgumentParser()
@@ -37,8 +49,12 @@ else:
 
 
 # ---------- 读取配置 ----------
-with open(args.config) as f:
-    cfg = yaml.safe_load(f)
+cfg_obj = TrainConfig.from_yaml(args.config)
+cfg = cfg_obj.to_dict()
+data_cfg = cfg["data"]
+model_cfg = cfg["model"]
+trainer_cfg = cfg["trainer"]
+optimizer_cfg = cfg["optimizer"]
 
 
 def set_seed(seed):
@@ -48,25 +64,27 @@ def set_seed(seed):
     torch.cuda.manual_seed_all(seed)  # 对所有 GPU 生效
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-seed = cfg.get("seed", 42)          # 如果 cfg 中没设置，就默认 42
-set_seed(seed + args.local_rank)  
+seed = cfg_obj.seed
+set_seed(seed + (args.local_rank if distributed else 0))
 
 
 # ---------- 日志 ----------
-def setup_logger(save_dir: str, filename: str = "train.log"):
-    os.makedirs(save_dir, exist_ok=True)
-    if not is_master:            # 只有主进程写文件、打屏
+def setup_logger(save_dir: str, filename: str = "train.log", enable: bool = True):
+    if not enable:
         return
+    os.makedirs(save_dir, exist_ok=True)
     logfile = os.path.join(save_dir, filename)
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.StreamHandler(sys.stdout),
-                  logging.FileHandler(logfile, mode="a", encoding="utf-8")],
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(logfile, mode="a", encoding="utf-8"),
+        ],
     )
 is_master = (not distributed) or (dist.get_rank() == 0)
-setup_logger(cfg["output"])
+setup_logger(trainer_cfg["output"], enable=is_master)
 if is_master:
     logging.info(f"DDP world size = {world_size}")
 
@@ -78,112 +96,135 @@ if is_master:
 
 
 # ---------- Backbone Wrapper ----------
-backbone = cfg["backbone"]
+backbone = model_cfg["backbone"]
 if backbone == "qwen25":
-    wrapper = Qwen25Wrapper(device=device,
-                            layers_to_select=cfg["layers_to_select"],
-                            select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = Qwen25Wrapper(
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "qwen25vl" or backbone == "xiaomi":
-    wrapper = Qwen25VLWrapper(model_name=cfg.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/Qwen/Qwen2.5-VL-7B-Instruct"),
-                                device=device,
-                                layers_to_select=cfg["layers_to_select"],
-                                select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = Qwen25VLWrapper(
+        model_name=model_cfg.get("model_name", "Qwen/Qwen2.5-VL-7B-Instruct"),
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "qwen3embed_seq":
-    wrapper = Qwen3EmbedSequenceWrapper(device=device,
-                                        layers_to_select=cfg["layers_to_select"],
-                                        select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = Qwen3EmbedSequenceWrapper(
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "qwen3embed_embed":
-    wrapper = Qwen3EmbedEmbeddingWrapper(device=device,
-                                         layers_to_select=cfg["layers_to_select"],
-                                         select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = Qwen3EmbedEmbeddingWrapper(
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "qwen3":
-    wrapper = Qwen3Wrapper(device=device,
-                            model_name=cfg.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/Models/Qwen3-8B"),
-                           layers_to_select=cfg["layers_to_select"],
-                           select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = Qwen3Wrapper(
+        device=device,
+        model_name=model_cfg.get("model_name", "Qwen/Qwen2-7B-Instruct"),
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "qwen3vl":
-    wrapper=Qwen3VLWrapper(device=device,
-                            model_name=cfg.get("model_name","/ytech_m2v5_hdd/workspace/kling_mm/Models/Qwen3-VL-8B-Instruct"),
-                           layers_to_select=cfg["layers_to_select"],
-                           select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = Qwen3VLWrapper(
+        device=device,
+        model_name=model_cfg.get("model_name", "Qwen/Qwen2-VL-7B-Instruct"),
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "minicpm":
-    wrapper = MiniCPMWrapper(device=device,
-                             layers_to_select=cfg["layers_to_select"],
-                             select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = MiniCPMWrapper(
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "ovis2_5":
-    wrapper = OvisWrapper(device=device,
-                          layers_to_select=cfg["layers_to_select"],
-                          select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = OvisWrapper(
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "jina_v4":
-    if cfg["task"] == "retrieval":
-        task = "retrieval"  # 或 "text-matching"
-    else:
-        task = "text-matching"
-    wrapper = JINAv4Wrapper(device=device,
-                            task=task,  # 或 "retrieval"
-                            prompt_name=None)
+    task = "retrieval" if model_cfg.get("task") == "retrieval" else "text-matching"
+    wrapper = JINAv4Wrapper(device=device, task=task, prompt_name=None)
 elif backbone == "t5_gemma":
-    wrapper = T5GemmaWrapper(model_name=cfg.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/Models/t5gemma-2b-2b-ul2"),
-                             device=device,
-                             layers_to_select=cfg["layers_to_select"],
-                             select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = T5GemmaWrapper(
+        model_name=model_cfg.get("model_name", "google/t5-v1_1-large"),
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "umt5":
-    wrapper = UMT5Wrapper(model_name=cfg.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/google/umt5-xxl"),
-                          device=device,
-                          layers_to_select=cfg["layers_to_select"],
-                          select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = UMT5Wrapper(
+        model_name=model_cfg.get("model_name", "google/umt5-xxl"),
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "internvl3" or backbone == "internvl3_5":
-    wrapper = InternVL3Wrapper(model_name=cfg.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/OpenGVLab/InternVL3-8B-hf"),
-                               device=device,
-                               layers_to_select=cfg["layers_to_select"],
-                               select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = InternVL3Wrapper(
+        model_name=model_cfg.get("model_name", "OpenGVLab/InternVL3-8B"),
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "kwai_llava":
-    wrapper = KwaiLlavaWrapper(device=device,
-                               layers_to_select=cfg["layers_to_select"],
-                               select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = KwaiLlavaWrapper(
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "clip_text":
-    wrapper = CLIPTextWrapper(device=device,
-                               layers_to_select=cfg["layers_to_select"],
-                               select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = CLIPTextWrapper(
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 elif backbone == "kling":
     wrapper = KlingBaseWrapper(device=device)
 elif backbone == "llama3":
-    wrapper = Llama3Wrapper(model_name=cfg.get("model_name","/ytech_m2v5_hdd/workspace/kling_mm/Models/Llama3-8b-Instruct/"),
-                            device=device,
-                            layers_to_select=cfg["layers_to_select"],
-                            select_all_layers_or_not=cfg["select_all_layers_or_not"])
+    wrapper = Llama3Wrapper(
+        model_name=model_cfg.get("model_name", "meta-llama/Meta-Llama-3-8B-Instruct"),
+        device=device,
+        layers_to_select=model_cfg["layers_to_select"],
+        select_all_layers_or_not=model_cfg["select_all_layers_or_not"],
+    )
 else:
     raise ValueError(f"Unsupported backbone: {backbone}")
 wrapper.eval()
 wrapper.requires_grad_(False)
 
 # ---------- Data ----------
-dataset = ContrastiveTextPairDataset(cfg["data"])
+dataset = ContrastiveTextPairDataset(data_cfg["path"])
 sampler = DistributedSampler(dataset, shuffle=True) if distributed else None
 
 if backbone == "jina_v4" or backbone == "internvl3" or backbone == "kling":
     collate = make_jina_contrastive_collate(
-        max_len=cfg.get("max_len", 1024),
+        max_len=model_cfg.get("max_len", data_cfg.get("max_len", 1024)),
     )
 else:
     collate = make_contrastive_collate(
         wrapper.tokenizer,
-        max_len=cfg.get("max_len", 1024),
+        max_len=model_cfg.get("max_len", data_cfg.get("max_len", 1024)),
         device=device,
     )
 loader = DataLoader(
     dataset,
-    batch_size=cfg["batch_size"],
+    batch_size=data_cfg["batch_size"],
     shuffle=(sampler is None),
     sampler=sampler,
-    num_workers=cfg.get("num_workers", 0),
+    num_workers=data_cfg.get("num_workers", 0),
     collate_fn=collate,
     drop_last=True
 )
 
 # ---------- Model ----------
-if "dim_in" in cfg.keys():
-    dim_in=cfg['dim_in']
+if "dim_in" in model_cfg.keys():
+    dim_in = model_cfg["dim_in"]
 elif backbone == "t5_gemma":
     dim_in  = wrapper.model.config.encoder.hidden_size
 elif backbone == "umt5":
@@ -212,8 +253,8 @@ elif backbone == "llama3":
 else:
     dim_in  = wrapper.model.config.hidden_size
 
-if "num_llm_layers" in cfg.keys():
-    num_llm_layers = cfg["num_llm_layers"]
+if "num_llm_layers" in model_cfg.keys():
+    num_llm_layers = model_cfg["num_llm_layers"]
 elif backbone == "t5_gemma":
     num_llm_layers = wrapper.model.config.encoder.num_hidden_layers
 elif backbone == "umt5":
@@ -240,34 +281,32 @@ elif backbone == "llama3":
 else:
     num_llm_layers = wrapper.model.config.num_hidden_layers
 
-if cfg["adapter"] == "attn":
+if model_cfg["adapter"] == "attn":
     
     attn    = AttnPooling(dim=dim_in,
-                        layers_to_select=cfg.get("layers_to_select",-1),
-                        norm_type=cfg.get("norm_type","layer_norm"),
-                        dim_out=cfg["proj_dim"],
-                        use_norm=cfg.get("use_norm",True),
-                        use_post_norm=cfg.get("use_post_norm",False),
-                        num_layers=cfg.get("num_layers", 2),
-                        use_rope=cfg.get("use_rope", True),
-                        num_llm_layers=num_llm_layers,
-                        use_softmax_weights=cfg.get('use_softmax_weights',False),
-                        load_softmax_weights=cfg.get('load_softmax_weights',None),
-                        trainable_layer_weights=cfg.get('trainable_layer_weights',False)).to(device)
+                        layers_to_select=model_cfg.get("layers_to_select",-1),
+                        norm_type=model_cfg.get("norm_type","layer_norm"),
+                        dim_out=model_cfg["proj_dim"],
+                        num_layers=model_cfg.get("num_layers", 2),
+                        use_rope=model_cfg.get("use_rope", True),
+                        num_llm_layers=num_llm_layers).to(device)
     attn = attn.to(dtype=torch.bfloat16)   # AttnPooling 用半精度即可
     print(f"Attn Dtype: {next(attn.parameters()).dtype}")
 
 else:
     attn    = MeanPooling(dim=dim_in,
-                        dim_out=cfg["proj_dim"]).to(device)
+                        dim_out=model_cfg["proj_dim"]).to(device)
 
 model   = ContrastiveModel(wrapper, attn,
-                           temperature=cfg.get("temperature", 0.1),
+                           temperature=model_cfg.get("temperature", 0.1),
                            gather_distributed=False).to(device)
 
-optimizer = torch.optim.AdamW(model.trainable_parameters(),
-                              lr=float(cfg["lr"]),
-                              weight_decay=float(cfg.get("weight_decay", 1e-4)))
+optimizer_cfg = cfg.get("optimizer", {})
+optimizer = torch.optim.AdamW(
+    model.trainable_parameters(),
+    lr=float(optimizer_cfg.get("lr", cfg.get("lr", 1e-4))),
+    weight_decay=float(optimizer_cfg.get("weight_decay", cfg.get("weight_decay", 1e-4))),
+)
 
 # ---------- DDP 包装 ----------
 if distributed:
@@ -278,7 +317,7 @@ if distributed:
     )
 
 # ---------- TensorBoard ----------
-writer = SummaryWriter(os.path.join(cfg["output"], "tb")) if is_master else None
+writer = SummaryWriter(os.path.join(trainer_cfg["output"], "tb")) if is_master else None
 
 # ---------- Trainer ----------
 def logger(d):
@@ -287,17 +326,17 @@ def logger(d):
 
 trainer = Trainer(
     model, optimizer, loader,
-    epochs=cfg["epochs"],
-    accumulation_steps=cfg.get("accum_steps", 1),
-    warmup_epochs=cfg.get("warmup_epochs", 1),
-    amp=cfg.get("amp", True),
+    epochs=trainer_cfg["epochs"],
+    accumulation_steps=trainer_cfg.get("accumulation_steps", cfg.get("accum_steps", 1)),
+    warmup_epochs=trainer_cfg.get("warmup_epochs", 0.01),
+    amp=trainer_cfg.get("amp", True),
     log_fn=logger,
-    ckpt_dir=cfg["output"] if is_master else None,   # 只主进程存 ckpt
-    save_every_steps=cfg.get("save_every_steps", 400),
-    num_max_saved=cfg.get("num_max_saved", 5),
+    ckpt_dir=trainer_cfg["output"] if is_master else None,   # 只主进程存 ckpt
+    save_every_steps=trainer_cfg.get("save_every_steps", 400),
+    num_max_saved=trainer_cfg.get("num_max_saved", 5),
     writer=writer,
-    num_layers=cfg.get("num_layers", 2),
-    lr_schedule= cfg.get("lr_schedule", "constant"),
+    num_layers=model_cfg.get("num_layers", 2),
+    lr_schedule= trainer_cfg.get("lr_schedule", "constant"),
 )
 trainer.train()
 
