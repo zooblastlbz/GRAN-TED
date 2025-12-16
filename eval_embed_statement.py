@@ -8,14 +8,6 @@ from collections import defaultdict
 import numpy as np
 import random
 from pathlib import Path
-import sys
-
-# 确保 src 在路径中，便于导入新包布局
-ROOT = Path(__file__).resolve().parent
-SRC_ROOT = ROOT / "src"
-for p in (SRC_ROOT, ROOT):
-    if str(p) not in sys.path:
-        sys.path.insert(0, str(p))
 
 
 # ------------------------------------------------------------
@@ -44,17 +36,25 @@ def _cfg_get(cfg: dict, path: List[str], default=None):
     return cur
 
 
-# ------------------------------------------------------------
-# ❷ 根据 config 创建 wrapper
-# ------------------------------------------------------------
-from models.encoder_wrapper import T5GemmaWrapper, UMT5Wrapper,CLIPTextWrapper
-from models.llm_wrapper import Qwen25Wrapper, Qwen25VLWrapper, Qwen3Wrapper, InternVL3Wrapper, KwaiLlavaWrapper, MiniCPMWrapper, OvisWrapper,Qwen3VLWrapper,Llama3Wrapper
+from config import TrainConfig
+from models.encoder_wrapper import T5GemmaWrapper, UMT5Wrapper, CLIPTextWrapper
+from models.llm_wrapper import (
+    Qwen25Wrapper,
+    Qwen25VLWrapper,
+    Qwen3Wrapper,
+    InternVL3Wrapper,
+    KwaiLlavaWrapper,
+    MiniCPMWrapper,
+    OvisWrapper,
+    Qwen3VLWrapper,
+    Llama3Wrapper,
+)
 from models.embedding_wrapper import Qwen3EmbedEmbeddingWrapper, Qwen3EmbedSequenceWrapper, JINAv4Wrapper
 from models.kling_wrapper import KlingBaseWrapper
 
 
 def build_wrapper(cfg: dict, device: str):
-    m = cfg.get("model", cfg)
+    m = cfg["model"] if "model" in cfg else cfg  # legacy fallback
     bb = m.get("backbone")
     kw = dict(
         device=device,
@@ -68,7 +68,7 @@ def build_wrapper(cfg: dict, device: str):
     elif bb == "qwen25vl" or bb == "xiaomi":
         return Qwen25VLWrapper(
             device=device,
-            model_name=m.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/Qwen/Qwen2.5-VL-7B-Instruct"),
+            model_name=m.get("model_name", "Qwen/Qwen2.5-VL-7B-Instruct"),
             layers_to_select=m["layers_to_select"],
             select_all_layers_or_not=m["select_all_layers_or_not"],
         )
@@ -81,20 +81,23 @@ def build_wrapper(cfg: dict, device: str):
     elif bb == "qwen3vl":
         return Qwen3VLWrapper(**kw)
     elif bb == "llama3":
-        return Llama3Wrapper(**kw)
+        return Llama3Wrapper(
+            model_name=m.get("model_name", "meta-llama/Meta-Llama-3-8B-Instruct"),
+            **kw,
+        )
     elif bb == "jina_v4":
         task = "retrieval" if m.get("task") == "retrieval" else "text-matching"
         return JINAv4Wrapper(device=device, task=task, prompt_name=None)
     elif bb == "t5_gemma":
         return T5GemmaWrapper(
-            model_name=m.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/Models/t5gemma-2b-2b-ul2"),
+            model_name=m.get("model_name", "google/t5-v1_1-large"),
             device=device,
             layers_to_select=m["layers_to_select"],
             select_all_layers_or_not=m["select_all_layers_or_not"],
         )
     elif bb == "umt5":
         return UMT5Wrapper(
-            model_name=m.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/google/umt5-xxl"),
+            model_name=m.get("model_name", "google/umt5-xxl"),
             device=device,
             layers_to_select=m["layers_to_select"],
             select_all_layers_or_not=m["select_all_layers_or_not"],
@@ -102,7 +105,7 @@ def build_wrapper(cfg: dict, device: str):
     elif bb == "internvl3" or bb == "internvl3_5":
         return InternVL3Wrapper(
             device=device,
-            model_name=m.get("model_name", "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/OpenGVLab/InternVL3-8B-hf"),
+            model_name=m.get("model_name", "OpenGVLab/InternVL3-8B"),
             layers_to_select=m["layers_to_select"],
             select_all_layers_or_not=m["select_all_layers_or_not"],
         )
@@ -166,7 +169,7 @@ def build_pool(cfg: dict, hidden_dim: int, device: str, load_epoch:str, num_llm_
 # ------------------------------------------------------------
 from models.embedding_model import EmbeddingModel
 import yaml
-from granted.config import TrainConfig
+from config import TrainConfig
 
 def deploy_embedding_model(cfg_path: str, device: str, load_epoch: str) -> EmbeddingModel:
     try:

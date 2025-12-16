@@ -12,6 +12,10 @@ export NCCL_IB_HCA=mlx5_0,mlx5_1,mlx5_4,mlx5_5,mlx5_6,mlx5_7,mlx5_8,mlx5_9
 export NCCL_ALGO=^NVLS,NVLSTree
 export TORCH_NCCL_AVOID_RECORD_STREAMS=1
 
+# 设置 PYTHONPATH，确保可以导入 granted 包
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="${REPO_ROOT}/src:${REPO_ROOT}:${PYTHONPATH}"
+
 # 按需调整路径
 DEEPSPEED_BIN="/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/miniconda3/envs/t5gamma-new/bin/deepspeed"
 PYTHON_BIN="/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/miniconda3/envs/t5gamma-new/bin/python"
@@ -39,4 +43,3 @@ for cfg in "${CONFIGS[@]}"; do
   # 如需训练后立刻评测，可取消下方注释
   # CUDA_VISIBLE_DEVICES=0 "${PYTHON_BIN}" eval_embed_statement.py --config "${CONFIG_DIR}/${cfg}"
 done
-

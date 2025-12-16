@@ -6,11 +6,11 @@ import random
 import numpy as np
 from pathlib import Path
 
-# 期待通过环境变量提供 PYTHONPATH=src；保留相对导入的包路径
-from granted.data.datasets import ContrastiveTextPairDataset
-from granted.data.collate import make_contrastive_collate, make_jina_contrastive_collate
-from granted.models.encoder_wrapper import T5GemmaWrapper, UMT5Wrapper, CLIPTextWrapper
-from granted.models.llm_wrapper import (
+# 期待通过环境变量提供 PYTHONPATH=src:${REPO_ROOT}
+from datasets.contrastive_dataset import ContrastiveTextPairDataset
+from datasets.collate import make_contrastive_collate, make_jina_contrastive_collate
+from models.encoder_wrapper import T5GemmaWrapper, UMT5Wrapper, CLIPTextWrapper
+from models.llm_wrapper import (
     Qwen25Wrapper,
     Qwen25VLWrapper,
     Qwen3Wrapper,
@@ -21,15 +21,15 @@ from granted.models.llm_wrapper import (
     Qwen3VLWrapper,
     Llama3Wrapper,
 )
-from granted.models.embedding_wrapper import Qwen3EmbedEmbeddingWrapper, Qwen3EmbedSequenceWrapper, JINAv4Wrapper
-from granted.models.kling_wrapper import KlingBaseWrapper
-from granted.models.attention_pooling import AttnPooling, MeanPooling
-from granted.models.contrastive_model import ContrastiveModel
-from granted.training.trainer import Trainer
+from models.embedding_wrapper import Qwen3EmbedEmbeddingWrapper, Qwen3EmbedSequenceWrapper, JINAv4Wrapper
+from models.kling_wrapper import KlingBaseWrapper
+from models.attention_pooling import AttnPooling, MeanPooling
+from models.contrastive_model import ContrastiveModel
+from trainer import Trainer
 from torch.utils.tensorboard import SummaryWriter
 import logging, sys
 
-from granted.config import TrainConfig  # type: ignore
+from config import TrainConfig  # type: ignore
 
 # ---------- CLI ----------
 p = argparse.ArgumentParser()
