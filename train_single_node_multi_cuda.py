@@ -287,7 +287,7 @@ if model_cfg["adapter"] == "attn":
                         layers_to_select=model_cfg.get("layers_to_select",-1),
                         norm_type=model_cfg.get("norm_type","layer_norm"),
                         dim_out=model_cfg["proj_dim"],
-                        num_layers=model_cfg.get("num_layers", 2),
+                        select_all_layers_or_not=model_cfg.get("select_all_layers_or_not",False),
                         use_rope=model_cfg.get("use_rope", True),
                         num_llm_layers=num_llm_layers).to(device)
     attn = attn.to(dtype=torch.bfloat16)   # AttnPooling 用半精度即可

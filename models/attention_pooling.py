@@ -289,6 +289,7 @@ class AttnPooling(nn.Module):
         num_llm_layers: Optional[int] = 0,
         elementwise_affine: bool = True,
         norm_type = "layer_norm",
+        select_all_layers_or_not: bool = False,
     ):
         super().__init__()
         self.use_rope = use_rope
@@ -297,26 +298,9 @@ class AttnPooling(nn.Module):
         self.norm_type=norm_type
 
         self.layers_to_select=layers_to_select
-        if isinstance(self.layers_to_select,int):
-            self.num_layer_norms=1
-        elif isinstance(self.layers_to_select,list):
-            self.num_layer_norms=len(self.layers_to_select)
-            print(f"layers_to_select:{self.layers_to_select}")
-        elif isinstance(self.layers_to_select,str):
-            if self.layers_to_select=="all":
-                self.num_layer_norms=num_llm_layers
-            else:
-                begin=int(self.layers_to_select.split(':')[0])
-                end=int(self.layers_to_select.split(':')[-1])
-                hidden_list=[i for i in range(begin,end,1)]
-                self.num_layer_norms=len(hidden_list)
-            #self.layer_norms = nn.ModuleList([
-            #    nn.LayerNorm(dim, elementwise_affine=elementwise_affine) for _ in range(self.num_layer_norms + 1)
-            #])
-            # L = self.num_layer_norms + 1
-            # # 每层一个“标量”缩放和偏移
-            # self.ln_scales = nn.Parameter(torch.ones(L))   # w_i
-            # self.ln_biases = nn.Parameter(torch.zeros(L))  # b_i
+        self.select_all_layers_or_not=select_all_layers_or_not
+       
+
         if use_rope:
             self.encoder = nn.ModuleList([
                 _RoPEBlock(dim, num_heads, mlp_ratio, dropout)
@@ -345,7 +329,7 @@ class AttnPooling(nn.Module):
     def forward(self, x: torch.Tensor, attention_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         D = x.shape[-1]
         normalized_shape = (D,)
-        if self.num_layer_norms>1:
+        if self.select_all_layers_or_not:
             #assert (x.shape[1] == self.num_layer_norms + 1 and x.dim() == 4) or \
             #    (x.shape[0] == self.num_layer_norms + 1 and x.dim() == 3), \
             #    f"Expected x shape to be [B, L, N, dim] or [L, N, dim] with L={self.num_layer_norms + 1}, but got {x.shape}."
