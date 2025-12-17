@@ -1,14 +1,14 @@
 seed: 42
 
 data:
-  path: /ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/proj_text_enc/attn_pool_contrastive/data/raw/processed_adapter_data.jsonl
+  path: path/to/data
   batch_size: 16
   num_workers: 0
   max_len: 1024
 
 model:
   backbone: qwen3vl
-  model_name: /ytech_m2v5_hdd/workspace/kling_mm/libozhou/Model/Qwen3-VL-8B-te-ours
+  model_name: path/to/qwen3vl-model
   layers_to_select: -1
   select_all_layers_or_not: true
   adapter: attn
@@ -24,7 +24,7 @@ optimizer:
   weight_decay: 1.0e-05
 
 trainer:
-  output: runs/qwen3vl-ours-norm-avg
+  output: runs/example_qwen3vl
   epochs: 1
   accumulation_steps: 1
   warmup_epochs: 0.0

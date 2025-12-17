@@ -17,12 +17,12 @@ def parse_args():
     import argparse, os
     p = argparse.ArgumentParser("Caption-Statement Embedding Eval")
     p.add_argument("--config", required=True, help="训练用的 yaml")
-    p.add_argument("--input_file", type=str, default='/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/proj_text_enc/attn_pool_contrastive/data/eval_data/annotated_question_answer_statements_intergrated_filtered.json')
+    p.add_argument("--input_file", type=str, default='TED_6K_path')
     p.add_argument("--output_path", type=str, default='./output_multi_epoch')
     p.add_argument("--load_epoch", type=str, default='1')
     p.add_argument("--device", default="cuda")
     p.add_argument("--batch_size", type=int, default=24)
-    p.add_argument("--seed", type=int, default=42, help="选项打乱的随机种子；不设则每次运行顺序不同")
+    p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
 
@@ -144,7 +144,7 @@ def build_pool(cfg: dict, hidden_dim: int, device: str, load_epoch:str, num_llm_
                         layers_to_select=m.get("layers_to_select",-1),
                         norm_type=m.get("norm_type","layer_norm"),
                         dim_out=m["proj_dim"],
-                        num_layers=m.get("num_layers", 2),
+                        select_all_layers_or_not=m.get("select_all_layers_or_not",False),
                         use_rope=m.get("use_rope", True),
                         num_llm_layers=num_llm_layers).to(device)
   

@@ -30,7 +30,7 @@ class _BaseQwen3Embed(nn.Module):
     """共用: tokenizer / model / tokenize"""
     def __init__(
         self,
-        model_name: str="/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/Qwen/Qwen3-Embedding-8B",
+        model_name: str="path/to/Qwen3-Embedding-8B",
         device: str = "cuda",
         bf16: bool = True,
         max_len: int = 8192,
@@ -74,7 +74,7 @@ class Qwen3EmbedSequenceWrapper(_BaseQwen3Embed):
     返回 Qwen3-Embedding 的 last_hidden_state  —— shape [B, N, D]
     """
     def __init__(self,
-                 model_name: str = "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/Qwen/Qwen3-Embedding-8B",
+                 model_name: str = "path/to/Qwen3-Embedding-8B",
                  device: str = "cuda",
                  bf16: bool = True,
                  max_len: int = 8192,
@@ -115,17 +115,9 @@ class Qwen3EmbedSequenceWrapper(_BaseQwen3Embed):
         )
 
         if self.select_all_layers_or_not:
-            # 选择所有层的 hidden states，每层  apply mean normalization to each layer’s embeddings before averaging
+           
             hidden = torch.stack(out.hidden_states, dim=1)        # (B, L, N, D)
-            # layer_mean = hidden.mean(dim=2, keepdim=True)         # (B, L, 1, D)
-            # hidden = hidden - layer_mean                          # 去均值
-
-            # layer_max = hidden.max(dim=2, keepdim=True)[0]        # (B, L, 1, D)
-            # layer_min = hidden.min(dim=2, keepdim=True)[0]        # (B, L, 1, D)
-            # layer_range = (layer_max - layer_min).clamp(min=1e-6) # 避免除 0
-
-            # hidden = hidden / layer_range                         # 缩放到 (-1,1) 左右
-            # hidden = hidden.mean(dim=1)                           # (B, N, D)
+     
         else:
             hidden = out.hidden_states[self.layers_to_select]     # 选择指定层的 hidden states [B, N, dim]
 
@@ -140,7 +132,7 @@ class Qwen3EmbedEmbeddingWrapper(_BaseQwen3Embed):
     取 last_token_pool 并扩维成 [B, 1, D]，attention_mask=[B,1]
     """
     def __init__(self,
-                 model_name: str = "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/Qwen/Qwen3-Embedding-8B",
+                 model_name: str = "path/to/Qwen3-Embedding-8B",
                  device: str = "cuda",
                  bf16: bool = True,
                  max_len: int = 8192,
@@ -220,7 +212,7 @@ class JINAv4Wrapper(nn.Module):
     """
     def __init__(
         self,
-        model_name: str = "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/jinaai/jina-embeddings-v4",
+        model_name: str = "path/to/jina-embedding-v4",
         *,
         task: str = "text-matching",           # retrieval / text-matching / code ...
         prompt_name: Optional[str] = None, # "query" / "passage" / None

@@ -26,7 +26,7 @@ from typing import Optional, Union, List, Tuple
 class CLIPTextWrapper(nn.Module):
     def __init__(
         self,
-        model_name: str = "/ytech_m2v5_hdd/workspace/kling_mm/libozhou/Model/AltCLIP",
+        model_name: str = "path/to/altclip-text-model",
         device: str = "cuda",
         layers_to_select: int = -1,
         select_all_layers_or_not: bool = False,
@@ -117,7 +117,7 @@ class UMT5Wrapper(nn.Module):
 
     def __init__(
         self,
-        model_name: str = "/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/google/umt5-xxl",
+        model_name: str = "path/to/umt5-xxl-model",
         device: str = "cuda",
         bf16: bool = True,
         max_len: int = 2048,
@@ -238,7 +238,7 @@ class T5GemmaWrapper(nn.Module):
 
     def __init__(
         self,
-        model_name: str = "/ytech_m2v5_hdd/workspace/kling_mm/Models/t5gemma-2b-2b-ul2",
+        model_name: str = "path/to/umt5-xxl-model",
         device: str = "cuda",
         bf16: bool = True,
         max_len: int = 2048,
@@ -329,7 +329,7 @@ class T5GemmaWrapper(nn.Module):
 if __name__ == "__main__":
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     wrapper = UMT5Wrapper(
-        model_name="/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/models/google/umt5-xxl",
+        model_name="path/to/umt5-xxl-model",
         device=dev,
         bf16=True,
         max_len=1024,

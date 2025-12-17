@@ -17,8 +17,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export PYTHONPATH="${REPO_ROOT}/src:${REPO_ROOT}:${PYTHONPATH}"
 
 # 按需调整路径
-DEEPSPEED_BIN="/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/miniconda3/envs/t5gamma-new/bin/deepspeed"
-PYTHON_BIN="/ytech_m2v5_hdd/workspace/kling_mm/yangsihan05/miniconda3/envs/t5gamma-new/bin/python"
+DEEPSPEED_BIN=""
+PYTHON_BIN=""
 HOSTFILE="/etc/mpi/hostfile"
 
 # 训练脚本与配置目录
@@ -41,5 +41,5 @@ for cfg in "${CONFIGS[@]}"; do
 
   echo ">>> $(date '+%F %T')  结束运行: $cfg"
   # 如需训练后立刻评测，可取消下方注释
-  # CUDA_VISIBLE_DEVICES=0 "${PYTHON_BIN}" eval_embed_statement.py --config "${CONFIG_DIR}/${cfg}"
+  CUDA_VISIBLE_DEVICES=0 "${PYTHON_BIN}" eval_embed_statement.py --config "${CONFIG_DIR}/${cfg}"
 done

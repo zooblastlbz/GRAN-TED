@@ -90,92 +90,6 @@ def apply_rotary_pos_emb(
     q_rot = (q * cos) + (_rotate_half(q) * sin)
     k_rot = (k * cos) + (_rotate_half(k) * sin)
     return q_rot, k_rot
-# =================================
-
-
-# class _RoPEBlock(nn.Module):
-#     def __init__(self, dim: int, num_heads: int, mlp_ratio: float, dropout: float):
-#         super().__init__()
-#         self.num_heads = num_heads
-#         self.head_dim = dim // num_heads
-
-#         # self.qkv_proj = nn.Linear(dim, dim * 3, bias=False)
-#         self.q_proj = nn.Linear(dim, dim, bias=False)
-#         self.k_proj = nn.Linear(dim, dim, bias=False)
-#         self.v_proj   = nn.Linear(dim, dim, bias=False)
-#         self.o_proj   = nn.Linear(dim, dim, bias=False)
-#         self.dropout  = nn.Dropout(dropout)
-
-#         self.norm1 = nn.LayerNorm(dim)
-#         self.norm2 = nn.LayerNorm(dim)
-
-#         self.mlp = nn.Sequential(
-#             nn.Linear(dim, int(dim * mlp_ratio)),
-#             nn.GELU(),
-#             nn.Dropout(dropout),
-#             nn.Linear(int(dim * mlp_ratio), dim),
-#             nn.Dropout(dropout),
-#         )
-
-#     def forward(self, x: torch.Tensor, attn_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
-#         """
-#         x: [B, L, dim] (L = 1 + N, where N is sequence length)
-#         attn_mask: [B, L] (Boolean mask, True indicates a value to be IGNORED)
-#         """
-#         B, L, D = x.size()
-#         h = self.num_heads
-
-#         # --- Self-Attention ---
-#         residual = x
-#         x = self.norm1(x)
-
-#         # qkv = self.qkv_proj(x).view(B, L, 3, h, self.head_dim)
-#         # q, k, v = qkv.unbind(dim=2)
-#         q = self.q_proj(x)
-#         k = self.k_proj(x)
-#         v = self.v_proj(x)
-        
-#         # FIX: --- Isolate [POOL] token from RoPE ---
-#         # Reshape to [B, L, D] for RoPE processing
-#         # q = q.reshape(B, L, D)
-#         # k = k.reshape(B, L, D)
-#         # v = v.reshape(B, L, D)
-
-#         # Separate the [POOL] token (at index 0) from the rest of the sequence
-#         q_pool, q_seq = q[:, 0:1, :], q[:, 1:, :]
-#         k_pool, k_seq = k[:, 0:1, :], k[:, 1:, :]
-        
-#         # Apply RoPE *only* to the sequence part. Note the seq_len is L-1.
-#         if q_seq.shape[1] > 0: # Ensure sequence is not empty
-#             q_seq, k_seq = apply_rotary_pos_emb(q_seq, k_seq, seq_len=L - 1)
-        
-#         # Concatenate back
-#         q = torch.cat([q_pool, q_seq], dim=1)
-#         k = torch.cat([k_pool, k_seq], dim=1)
-#         # --- End of RoPE fix ---
-
-#         # Reshape for multi-head attention
-#         q = q.view(B, L, h, self.head_dim).transpose(1, 2)
-#         k = k.view(B, L, h, self.head_dim).transpose(1, 2)
-#         v = v.view(B, L, h, self.head_dim).transpose(1, 2)
-
-#         attn_scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)
-
-#         if attn_mask is not None:
-#             mask = attn_mask.view(B, 1, 1, L)
-#             attn_scores = attn_scores.masked_fill(mask, -torch.finfo(attn_scores.dtype).max)
-
-#         attn_weights = attn_scores.softmax(dim=-1)
-#         attn_out = (attn_weights @ v)
-#         attn_out = attn_out.transpose(1, 2).reshape(B, L, D)
-#         attn_out = self.o_proj(attn_out)
-#         attn_out = self.dropout(attn_out)
-
-#         x = residual + attn_out
-
-#         # --- FFN ---
-#         x = x + self.mlp(self.norm2(x))
-#         return x
 
 class _RoPEBlock(nn.Module):
     """
@@ -330,11 +244,7 @@ class AttnPooling(nn.Module):
         D = x.shape[-1]
         normalized_shape = (D,)
         if self.select_all_layers_or_not:
-            #assert (x.shape[1] == self.num_layer_norms + 1 and x.dim() == 4) or \
-            #    (x.shape[0] == self.num_layer_norms + 1 and x.dim() == 3), \
-            #    f"Expected x shape to be [B, L, N, dim] or [L, N, dim] with L={self.num_layer_norms + 1}, but got {x.shape}."
-
-
+         
 
             if x.dim() == 4:
                 B, L, N, D = x.shape
