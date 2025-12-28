@@ -24,7 +24,7 @@ optimizer:
   weight_decay: 1.0e-05
 
 trainer:
-  output: runs/example_qwen3vl
+  output: runs/example_qwen3vl    # directory containing epoch_*.pt after training
   epochs: 1
   accumulation_steps: 1
   warmup_epochs: 0.0
@@ -32,3 +32,6 @@ trainer:
   save_every_steps: 100
   num_max_saved: 25
   lr_schedule: constant
+
+eval:
+  input_file: data/TED-6k.json    # evaluation JSON (can be overridden by --input_file)

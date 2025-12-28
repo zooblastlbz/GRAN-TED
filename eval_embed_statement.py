@@ -17,7 +17,7 @@ def parse_args():
     import argparse, os
     p = argparse.ArgumentParser("Caption-Statement Embedding Eval")
     p.add_argument("--config", required=True, help="训练用的 yaml")
-    p.add_argument("--input_file", type=str, default='TED_6K_path')
+    p.add_argument("--input_file", type=str, default=None)
     p.add_argument("--output_path", type=str, default='./output_multi_epoch')
     p.add_argument("--load_epoch", type=str, default='1')
     p.add_argument("--device", default="cuda")
@@ -567,9 +567,19 @@ def save_results(data: List[Dict], predictions: List[tuple], output_file: str, a
 # ============================ main ===========================
 def main():
     args = parse_args()
+    # Resolve config (for eval defaults)
+    try:
+        cfg_obj = TrainConfig.from_yaml(args.config)
+        cfg_main = cfg_obj.to_dict()
+    except Exception:
+        cfg_main = yaml.safe_load(open(args.config))
+
+    input_file = args.input_file or _cfg_get(cfg_main, ["eval", "input_file"])
+    if input_file is None:
+        raise ValueError("input_file is required: pass --input_file or set eval.input_file in the YAML config.")
 
     # 1) 数据加载 + 过滤（保持原逻辑）
-    data = load_statement_data(args.input_file, args.seed)
+    data = load_statement_data(input_file, args.seed)
     print(f"加载了 {len(data)} 个样本")
     data = filter_data(data)
     caption_queries, statements, mappings = prepare_captions_and_statements(data)
